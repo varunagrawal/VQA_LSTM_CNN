@@ -90,6 +90,7 @@ local dataset = {}
 local h5_file = hdf5.open(opt.input_ques_h5, 'r')
 
 dataset['question'] = h5_file:read('/ques_train'):all()
+dataset['question_id'] = h5_file:read('/question_id_train'):all()
 dataset['lengths_q'] = h5_file:read('/ques_length_train'):all()
 dataset['img_list'] = h5_file:read('/img_pos_train'):all()
 dataset['answers'] = h5_file:read('/answers'):all()
@@ -178,7 +179,8 @@ optimize.update_grad_per_n_batches=1
 
 optimize.winit=join_vector({encoder_w_q,embedding_w_q,multimodal_w}) 
 
-
+seen = torch.zeros(dataset['question']:size(1))
+repeated = 0
 ------------------------------------------------------------------------
 -- Next batch for train
 ------------------------------------------------------------------------
@@ -189,13 +191,22 @@ function dataset:next_batch()
 	
 	local nqs=dataset['question']:size(1) 
 	-- we use the last val_num data for validation (the data already randomlized when created)
-
+	
 	for i=1,batch_size do
 		qinds[i]=torch.random(nqs) 
+		-- qinds[i]= i 
+		-- if seen[qinds[i]] == 1 then
+			-- print(qinds[i] .. " is repeated")
+			-- repeated = repeated+1
+		-- end
+		-- seen[qinds[i]] = 1
 		iminds[i]=dataset['img_list'][qinds[i]] 
 	end
+	-- print("qinds", qinds)
+	-- print("iminds", iminds)
+	-- print(dataset["question_id"]:index(1, qinds))
 
-
+	-- print(dataset['question']:index(1,qinds))
 	local fv_sorted_q=sort_encoding_onehot_right_align(dataset['question']:index(1,qinds),dataset['lengths_q']:index(1,qinds),vocabulary_size_q) 
 	local fv_im=dataset['fv_im']:index(1,iminds) 
 	local labels=dataset['answers']:index(1,qinds) 
@@ -209,6 +220,8 @@ function dataset:next_batch()
 		labels = labels:cuda()
 	end
 
+	-- print(fv_sorted_q[2])
+	-- os.exit()
 	return fv_sorted_q,fv_im, labels ,batch_size 
 end
 
@@ -249,6 +262,16 @@ function JdJ(x)
 
 	--embedding forward--
 	local word_embedding_q=split_vector(embedding_net_q:forward(fv_sorted_q[1]),fv_sorted_q[2]) 
+
+	-- print(word_embedding_q[1])
+	-- print(word_embedding_q[2])
+	-- print(word_embedding_q[3])
+	-- print(word_embedding_q[4])
+	-- print(word_embedding_q[5])
+	-- print(word_embedding_q[6])
+	-- print(word_embedding_q[7])
+	-- print(word_embedding_q[8])
+	-- os.exit()
 
 	--encoder forward--
 	local states_q,junk2=rnn_forward(encoder_net_buffer_q,torch.repeatTensor(dummy_state_q:fill(0),batch_size,1),word_embedding_q,fv_sorted_q[2]) 
@@ -300,6 +323,7 @@ for iter = 1, opt.max_iters do
 	end
 	if iter%100 == 0 then
 		print('training loss: ' .. running_avg, 'on iter: ' .. iter .. '/' .. opt.max_iters)
+		-- print("Times datum repeated: " .. repeated)
 	end
 	optim.rmsprop(JdJ, optimize.winit, optimize, state)
 	
